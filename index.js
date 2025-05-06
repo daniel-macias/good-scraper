@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const crypto = require('crypto');
 
 const MONTHS = {
 	'enero': '01',
@@ -27,39 +28,58 @@ async function main() {
 	const page = await browser.newPage();
 	await page.goto(url);
 
-	const eventTitle = await page.$eval('.ficha_fila h1', el => el.textContent.trim());
+	const name = await page.$eval('.ficha_fila h1', el => el.textContent.trim());
 	const description = await page.$eval('.texto', el => el.innerText.trim());
 	const category = await page.$eval('.tags_nota .tag_nota', el => el.textContent.trim());
 	const dateText = await page.$eval('.ficha_fila p:nth-of-type(2)', el => el.textContent.trim());
 	const timeText = await page.$eval('.ficha_fila p:nth-of-type(4)', el => el.textContent.trim());
 
-	// --- NEW CLEANING LOGIC ---
 	const cleanText = dateText
-		.replace(/\./g, '') // remove dots
-		.replace(/\s*y\s*/gi, ',') // replace ' y ' with comma
-		.replace(/de\s+/gi, '') // remove 'de'
+		.replace(/\./g, '')
+		.replace(/\s*y\s*/gi, ',')
+		.replace(/de\s+/gi, '')
+		.replace(/,/g, ', ')
+		.replace(/\s+/g, ' ')
 		.trim();
 
-	// Now cleanText looks like: "22,23,29 abril 2025"
-
-	const parts = cleanText.split(' ');
-	const days = parts[0].split(',').map(d => d.trim());
-	const month = MONTHS[parts[1].toLowerCase()];
-	const year = parts[2];
-
-	const times = [];
-
-	for (const day of days) {
-		const formattedDay = day.padStart(2, '0');
-		const isoString = `${year}-${month}-${formattedDay}T${convertTimeTo24h(timeText)}:00Z`;
-		times.push(isoString);
+	const match = cleanText.match(/^([\d,\s]+)\s+([a-zA-Z]+)\s+(\d{4})$/);
+	if (!match) {
+		console.error('❌ Could not parse date:', cleanText);
+		process.exit(1);
 	}
 
-	console.log('Event title:', eventTitle);
-	console.log('Description:', description);
-	console.log('Category:', category);
-	console.log('Dates (ISO):', times);
+	const [, rawDays, monthName, year] = match;
+	const month = MONTHS[monthName.toLowerCase()];
+	const days = rawDays.split(',').map(d => d.trim().padStart(2, '0'));
 
+	const DURATION_MINUTES = 90;
+	const dateRanges = days.map(day => {
+		const timeString = `${year}-${month}-${day}T${convertTimeTo24h(timeText)}:00Z`;
+		const start = new Date(timeString);
+		const end = new Date(start.getTime() + DURATION_MINUTES * 60 * 1000);
+		return {
+			_key: crypto.randomBytes(6).toString('hex'), // Sanity requires unique keys
+			start: start.toISOString(),
+			end: end.toISOString(),
+		};
+	});
+
+	// Format output like your example
+	const output = {
+		_type: 'event',
+		name,
+		description,
+		categories: [category.toLowerCase()],
+		dates: dateRanges,
+		trending: false, // or true if you want default
+		priceRange: {
+			minPrice: 0,
+			maxPrice: 0
+		}
+		// location, promoImage, slug, etc can be added later
+	};
+
+	console.log(JSON.stringify(output, null, 2));
 	await browser.close();
 }
 
