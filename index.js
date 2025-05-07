@@ -80,17 +80,18 @@ async function main() {
 	const DURATION_MINUTES = 90;
 	const dateRanges = days.map(day => {
 		const timeString = `${year}-${month}-${day}T${convertTimeTo24h(timeText)}:00Z`;
-		const start = new Date(timeString);
-		const end = new Date(start.getTime() + DURATION_MINUTES * 60 * 1000);
+		const utcStart = new Date(timeString);
+		const localStart = new Date(utcStart.getTime() - 6 * 60 * 60 * 1000); // shift UTC to UTC-6
+		const localEnd = new Date(localStart.getTime() + DURATION_MINUTES * 60 * 1000);
 	
 		console.log(`📆 Date: ${year}-${month}-${day}`);
-		console.log(`➡️ Start: ${start.toISOString()}`);
-		console.log(`➡️ End:   ${end.toISOString()}`);
+		console.log(`➡️ Start: ${localStart.toISOString()}`);
+		console.log(`➡️ End:   ${localEnd.toISOString()}`);
 	
 		return {
 		_key: crypto.randomBytes(6).toString('hex'),
-			start: start.toISOString(),
-			end: end.toISOString(),
+			start: localStart.toISOString(),
+			end: localEnd.toISOString(),
 		};
 	});
 	
