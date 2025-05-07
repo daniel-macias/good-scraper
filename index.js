@@ -26,15 +26,16 @@ const ALLOWED_CATEGORIES = [
 ];
 
 async function main() {
-	const url = process.argv[2];
-	if (!url) {
-		console.error('❌ Error: No URL provided.\nUsage: node index.js <url>');
+	const [urlArg, uploadFlag] = process.argv.slice(2);
+	if (!urlArg) {
+		console.error('❌ Error: No URL provided.\nUsage: node index.js <url> [--upload]');
 		process.exit(1);
 	}
+	const shouldUpload = uploadFlag === '--upload';
 
 	const browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
-	await page.goto(url);
+	await page.goto(urlArg);
 
 	const name = await page.$eval('.ficha_fila h1', el => el.textContent.trim());
 	const description = await page.$eval('.texto', el => el.innerText.trim());
@@ -52,19 +53,25 @@ async function main() {
 	const timeText = await page.$eval('.ficha_fila p:nth-of-type(4)', el => el.textContent.trim());
 
 	// Parse and normalize dates
-	const cleanText = dateText
-		.replace(/\./g, '')
-		.replace(/\s*y\s*/gi, ',')
-		.replace(/de\s+/gi, '')
-		.replace(/,/g, ', ')
-		.replace(/\s+/g, ' ')
-		.trim();
+	let cleanText = dateText
+	.replace(/\./g, '')
+	.replace(/\s*y\s*/gi, ',')
+	.replace(/de\s+/gi, '')
+	.replace(/,/g, ', ')
+	.replace(/\s+/g, ' ')
+	.replace(/ma,\s*o/i, 'mayo') // fix malformed "mayo"
+	.trim();
+
+	cleanText = cleanText.replace(/^[a-záéíóúñü]+,\s*/i, ''); // remove weekday
 
 	const match = cleanText.match(/^([\d,\s]+)\s+([a-zA-Z]+)\s+(\d{4})$/);
 	if (!match) {
 		console.error('❌ Could not parse date:', cleanText);
 		process.exit(1);
 	}
+
+	console.log('📅 Raw date string:', dateText);
+	console.log('🧼 Cleaned date string:', cleanText);
 
 	const [, rawDays, monthName, year] = match;
 	const month = MONTHS[monthName.toLowerCase()];
@@ -75,12 +82,18 @@ async function main() {
 		const timeString = `${year}-${month}-${day}T${convertTimeTo24h(timeText)}:00Z`;
 		const start = new Date(timeString);
 		const end = new Date(start.getTime() + DURATION_MINUTES * 60 * 1000);
+	
+		console.log(`📆 Date: ${year}-${month}-${day}`);
+		console.log(`➡️ Start: ${start.toISOString()}`);
+		console.log(`➡️ End:   ${end.toISOString()}`);
+	
 		return {
-			_key: crypto.randomBytes(6).toString('hex'),
+		_key: crypto.randomBytes(6).toString('hex'),
 			start: start.toISOString(),
 			end: end.toISOString(),
 		};
 	});
+	
 
 	// Slug generation
 	const slug = {
@@ -136,9 +149,14 @@ async function main() {
 		}
 	};
 
-	console.log('📤 Uploading event to Sanity...');
-	const created = await client.create(output);
-	console.log('✅ Created with ID:', created._id);
+	if (shouldUpload) {
+		console.log('📤 Uploading event to Sanity...');
+		const created = await client.create(output);
+		console.log('✅ Created with ID:', created._id);
+	} else {
+		console.log('📝 JSON preview:\n');
+		console.log(JSON.stringify(output, null, 2));
+	}
 
 	await browser.close();
 }
